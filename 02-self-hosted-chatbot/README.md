@@ -51,14 +51,14 @@ The compose runs two services: **`open-webui`** (the chat UI, exposed only on th
 |---|---|
 | `OLLAMA_BASE_URL` | Tells Open WebUI where Ollama is running. `host.docker.internal` reaches the host machine from inside the container. |
 | `WEBUI_AUTH=true` | Requires login. The first user to register becomes the admin. |
-| `ENABLE_SIGNUP=false` | Prevents random people from creating accounts after you've registered. |
+| `ENABLE_SIGNUP=true` | Required so the very first admin can register. **You'll flip this to `false` in Step 4** once the admin account exists. |
 | `expose: 8080` | Open WebUI is reachable only inside the Docker network — Caddy fronts it. |
 | `caddy 80:80, 443:443` | Caddy terminates HTTPS and reverse-proxies to `open-webui:8080`. |
 | `open-webui-data` | Persists chat history and settings across container restarts. |
 
 ### Set your domain
 
-You'll need a domain pointing to your droplet's IP (an `A` record). If you don't have one, [DuckDNS](https://duckdns.org) gives free subdomains.
+You'll need a domain pointing to your droplet's IP (an `A` record). If you don't have one, free dynamic-DNS providers give you a usable subdomain in minutes — try [DuckDNS](https://www.duckdns.org/) or, if it's unreachable from your network, [FreeDNS](https://freedns.afraid.org/) or [No-IP](https://www.noip.com/).
 
 Edit the Caddyfile and replace `your-domain.com` with your actual domain:
 
@@ -107,9 +107,9 @@ Wait until you see the startup complete message in the logs. This usually takes 
 ## Step 4: Initial Setup
 
 1. Open your browser to `https://your-domain.com` (or `http://your-server-ip:3000` if you used the no-domain override).
-2. Register your admin account (first registration only).
+2. Register your admin account — **the first user to register becomes the admin**, so make sure that's you.
 3. You should see Gemma 4 E2B listed as an available model.
-4. Start chatting.
+4. Start chatting to verify everything works.
 
 If the model doesn't appear, check the connection:
 
@@ -117,6 +117,39 @@ If the model doesn't appear, check the connection:
 # From inside the container, can it reach Ollama?
 docker exec open-webui curl -s http://host.docker.internal:11434/api/tags | python3 -m json.tool
 ```
+
+### Lock down signup
+
+The shipped compose ships with `ENABLE_SIGNUP=true` so you can register that first admin. Now that you have, **disable signup** so no one else can create accounts on your instance.
+
+Edit `docker-compose.yml` and change:
+
+```yaml
+- ENABLE_SIGNUP=true
+```
+
+to:
+
+```yaml
+- ENABLE_SIGNUP=false
+```
+
+Recreate the container so the env change actually takes effect — `docker compose restart` reuses the existing container, which keeps the old env baked in. Use `up -d` instead, which detects the YAML change and recreates the container:
+
+```bash
+docker compose up -d
+# or, to be explicit:
+# docker compose up -d --force-recreate open-webui
+```
+
+Verify the new value is live:
+
+```bash
+docker exec open-webui printenv ENABLE_SIGNUP
+# ENABLE_SIGNUP=false
+```
+
+Your existing admin account is unaffected — only the registration page is closed. If you ever need to add another user later, you can either invite them from the admin panel (**Settings → Admin Panel → Users**) or temporarily flip `ENABLE_SIGNUP` back on, register them, and flip it off again.
 
 ## Step 5: Customize the Experience
 
