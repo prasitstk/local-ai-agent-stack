@@ -24,10 +24,30 @@ Each part builds on the previous one. By the end, you'll have a fully working AI
 Everything runs on a single **DigitalOcean droplet**:
 
 - **CPU**: 2+ vCPUs (4 recommended)
-- **RAM**: 8 GB minimum
+- **RAM**: 8 GB minimum (add swap — see below)
 - **Disk**: 50 GB SSD
 - **GPU**: None required
 - **Cost**: ~$48/month (8 GB / 4 vCPU droplet)
+
+### Swap (required on 8 GB droplets)
+
+`gemma4:e2b` needs ~7.2 GiB of free memory to load. On an 8 GB droplet, the kernel and other services typically leave only ~6.9 GiB available, and `ollama run` will fail with:
+
+```
+Error: 500 Internal Server Error: model requires more system memory (7.2 GiB) than is available (6.9 GiB)
+```
+
+Add 4 GB of swap to bridge the gap:
+
+```bash
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+Verify with `free -h`. Inference is slightly slower when paging, but unblocks the model on the minimum-spec droplet.
 
 ## Architecture Overview
 

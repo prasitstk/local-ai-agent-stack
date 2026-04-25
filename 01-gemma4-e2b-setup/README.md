@@ -133,103 +133,82 @@ curl http://localhost:11434/api/chat -d '{
 }'
 ```
 
+> `python3 -m json.tool` is Python's built-in JSON pretty-printer. It reads JSON on stdin and re-emits it indented and key-sorted (and errors out on malformed input, so it doubles as a validator). `jq .` is a more powerful alternative if you have it installed.
+
+### Understanding the response
+
+For a non-streaming request, Ollama returns a single JSON object shaped like this:
+
+```json
+{
+    "model": "gemma4:e2b",
+    "created_at": "2026-04-25T05:56:29Z",
+    "message": {
+        "role": "assistant",
+        "content": "Docker is a platform that ...",
+        "thinking": "1. Analyze the request: ..."
+    },
+    "done": true,
+    "done_reason": "stop",
+    "total_duration": 101741800079,
+    "load_duration": 37802053344,
+    "prompt_eval_count": 22,
+    "prompt_eval_duration": 20382145576,
+    "eval_count": 274,
+    "eval_duration": 41017298062
+}
+```
+
+The schema is defined by **Ollama's REST API**, not by the model or by `json.tool`. The model only emits raw tokens; Ollama wraps them and adds the timing metadata. Key fields:
+
+| Field | Meaning |
+|---|---|
+| `message.content` | The user-visible reply. |
+| `message.thinking` | Gemma 4's internal chain-of-thought (built-in thinking mode). Hide from end users; useful for debugging. |
+| `done` / `done_reason` | Whether generation finished, and why (`stop`, `length`, `load`). |
+| `prompt_eval_count` / `prompt_eval_duration` | Input tokens processed and time spent prefilling (nanoseconds). |
+| `eval_count` / `eval_duration` | Output tokens generated and time spent decoding (nanoseconds). |
+| `load_duration` | Time spent loading the model into RAM. Large on the first call, near zero while the model stays cached (see Step 6). |
+| `total_duration` | Wall-clock time for the whole request (nanoseconds). |
+
+Output speed (tokens/sec) = `eval_count / (eval_duration / 1e9)` — this is the number to compare against the benchmark table in the next step.
+
+If you'd rather use the OpenAI Chat Completions schema, Ollama also exposes a compatible endpoint at `/v1/chat/completions`.
+
 ## Step 5: Benchmark Performance
 
 Understanding your baseline performance is important. On a CPU-only server, you need to know if the speed is acceptable for your use case.
 
-Create a benchmark script:
+This repo ships a `benchmark.sh` next to this README. It runs four tests against the local Ollama API — a short factual question, code generation, multi-step reasoning, and JSON structured output — then prints tokens generated, prompt-eval time, generation time, and tokens/sec for each, plus a memory snapshot at the end.
+
+Copy it onto your droplet (or `git clone` this repo) and run it:
 
 ```bash
-cat > benchmark.sh << 'EOF'
-#!/bin/bash
-
-echo "=== Gemma 4 E2B — CPU Benchmark ==="
-echo "Date: $(date)"
-echo "Server: $(hostname)"
-echo "CPU: $(nproc) vCPUs"
-echo "RAM: $(free -h | awk '/Mem:/ {print $2}')"
-echo ""
-
-# Short prompt
-echo "--- Test 1: Short prompt (simple question) ---"
-time curl -s http://localhost:11434/api/chat -d '{
-  "model": "gemma4:e2b",
-  "messages": [{"role": "user", "content": "What is Kubernetes?"}],
-  "stream": false
-}' | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-msg = data['message']['content']
-total = data.get('total_duration', 0) / 1e9
-eval_count = data.get('eval_count', 0)
-print(f'Tokens generated: {eval_count}')
-print(f'Total time: {total:.2f}s')
-if total > 0:
-    print(f'Speed: {eval_count/total:.1f} tokens/sec')
-print(f'Response: {msg[:200]}...')
-"
-
-echo ""
-
-# Medium prompt
-echo "--- Test 2: Medium prompt (code generation) ---"
-time curl -s http://localhost:11434/api/chat -d '{
-  "model": "gemma4:e2b",
-  "messages": [{"role": "user", "content": "Write a Python function that reads a CSV file and returns the top 5 rows sorted by a given column. Include error handling."}],
-  "stream": false
-}' | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-msg = data['message']['content']
-total = data.get('total_duration', 0) / 1e9
-eval_count = data.get('eval_count', 0)
-print(f'Tokens generated: {eval_count}')
-print(f'Total time: {total:.2f}s')
-if total > 0:
-    print(f'Speed: {eval_count/total:.1f} tokens/sec')
-"
-
-echo ""
-
-# Thinking mode
-echo "--- Test 3: Reasoning with thinking mode ---"
-time curl -s http://localhost:11434/api/chat -d '{
-  "model": "gemma4:e2b",
-  "messages": [
-    {"role": "system", "content": "Think step by step before answering."},
-    {"role": "user", "content": "A trader buys 100 shares at 50 THB each. The price drops 10%, they buy 100 more. What is their average cost per share?"}
-  ],
-  "stream": false
-}' | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-total = data.get('total_duration', 0) / 1e9
-eval_count = data.get('eval_count', 0)
-print(f'Tokens generated: {eval_count}')
-print(f'Total time: {total:.2f}s')
-if total > 0:
-    print(f'Speed: {eval_count/total:.1f} tokens/sec')
-"
-
-echo ""
-echo "=== Benchmark complete ==="
-EOF
-
 chmod +x benchmark.sh
 ./benchmark.sh
 ```
 
+The first run will be slow because of the cold-start `load_duration` (see Step 4). Run it a second time to get steady-state numbers.
+
 ### What to Expect
 
-Based on testing with an 8 GB / 4 vCPU DigitalOcean droplet:
+Measured on an 8 GB / 4 vCPU DigitalOcean droplet (DO-Regular CPUs) with the four-test `benchmark.sh`:
 
-| Metric | Typical Range |
-|--------|---------------|
-| Tokens/sec | 5–15 tok/s |
-| Short answer latency | 3–8 seconds |
-| Code generation (100+ tokens) | 10–30 seconds |
-| Memory usage (idle) | ~2–3 GB |
-| Memory usage (inference) | ~3–5 GB |
+| Metric | Observed |
+|--------|----------|
+| Generation speed | **5.5–6.7 tok/s** (steady state across all four tests) |
+| Prompt eval (warm) | 2–3 s for typical prompts |
+| Cold-start overhead | +35–40 s on the very first request after the model unloads (the `load_duration` field) |
+| Short factual answer (~280 tokens) | ~50 s warm; ~110 s cold |
+| Code generation (~2000 tokens) | ~5.5 minutes |
+| Memory while model is loaded | ~7.1 GB resident — this is why swap is required on an 8 GB droplet |
+| Memory after `OLLAMA_KEEP_ALIVE` expires | ~150 MB (`ollama serve` only) |
+
+A few takeaways:
+
+- **Wall-clock time scales with response length, not prompt length.** At ~6 tok/s, every 100 output tokens costs ~16 seconds.
+- **First call after idle is slow.** The 35–40 s `load_duration` only happens when the RAM cache is cold. Raise `OLLAMA_KEEP_ALIVE` (Step 6) if your workload is bursty.
+- **Memory headroom is tight.** Once loaded, the model holds ~7 GB; the OS, Open WebUI, etc. share what's left. Without swap, you'll OOM under load.
 
 This is fast enough for demos, personal tools, and async workflows. For real-time multi-user chat, you'd want a GPU or a larger model served via cloud API.
 
@@ -260,6 +239,36 @@ ufw allow OpenSSH
 ufw enable
 # Do NOT allow 11434 publicly
 ```
+
+**Tune model keep-alive (RAM cache):**
+
+After the first inference, Ollama keeps the model loaded in RAM so subsequent requests skip the multi-second `load_duration` you saw in Step 4. The default keep-alive is 5 minutes — after that, the model unloads and the next request pays the load cost again.
+
+For an always-on personal tool, raise it by adding another `Environment` line to the same override file:
+
+```bash
+cat > /etc/systemd/system/ollama.service.d/override.conf << 'EOF'
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+Environment="OLLAMA_KEEP_ALIVE=24h"
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+Use `-1` to keep the model loaded forever, `0` to unload immediately after each request. You can also override per-request with a `keep_alive` field in the JSON body.
+
+**Where Ollama caches the model:**
+
+Two distinct caches, both managed by the `ollama serve` process:
+
+| Cache | Where | Lifetime | Cost when missed |
+|---|---|---|---|
+| Disk — model files (populated by `ollama pull`) | `/usr/share/ollama/.ollama/models/` (`blobs/` holds content-addressed weights, `manifests/` maps tags to blobs) | Survives reboots | Re-download from the registry |
+| RAM — loaded weights | `ollama serve` process memory | `OLLAMA_KEEP_ALIVE` (default `5m`) | `load_duration` ≈ 30–40 s on this droplet |
+
+Inspect what's on disk with `ollama list` or `sudo ls -lh /usr/share/ollama/.ollama/models/blobs/`. If you run Ollama as a regular user instead of the systemd service, the disk path is `~/.ollama/models/`. Override with the `OLLAMA_MODELS` env var.
 
 ## Step 7: Monitor Resource Usage
 
