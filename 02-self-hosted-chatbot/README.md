@@ -7,12 +7,12 @@ Build a ChatGPT-like web interface powered by Gemma 4 E2B running on your own se
 ## What We're Building
 
 ```
-┌──────────────┐      ┌──────────────┐      ┌──────────────┐
-│   Browser    │─────►│  Open WebUI  │─────►│   Ollama     │
-│  (any device)│ HTTPS│  (port 3000) │  API │  (port 11434)│
-│              │◄─────│              │◄─────│  Gemma 4 E2B │
-└──────────────┘      └──────────────┘      └──────────────┘
-                      │  Docker network (internal)  │
+┌──────────────┐  HTTPS  ┌──────────┐   ┌──────────────┐      ┌──────────────┐
+│   Browser    │────────►│  Caddy   │──►│  Open WebUI  │─────►│   Ollama     │
+│  (any device)│  443    │ (TLS +   │   │  (port 8080  │  API │  (port 11434)│
+│              │◄────────│  proxy)  │◄──│   internal)  │◄─────│  Gemma 4 E2B │
+└──────────────┘         └──────────┘   └──────────────┘      └──────────────┘
+                          │       Docker network (internal)        │
 ```
 
 Open WebUI gives you chat history, conversation management, model switching, prompt templates, and a clean responsive UI — all self-hosted.
@@ -26,76 +26,90 @@ If Docker isn't already on your droplet:
 curl -fsSL https://get.docker.com | sh
 
 # Add your user to the docker group (if not root)
-usermod -aG docker $USER
+sudo usermod -aG docker $USER
 
 # Verify
 docker --version
 docker compose version
 ```
 
-## Step 2: Create the Project Structure
+## Step 2: Configure the Shipped Compose
+
+This part of the repo ships a production-ready `docker-compose.yml` and `Caddyfile`. Don't recreate them — `cd` into the directory and use what's there:
 
 ```bash
-mkdir -p ~/chatbot && cd ~/chatbot
+cd ~/local-ai-agent-stack/02-self-hosted-chatbot
+ls
+# Caddyfile  README.md  docker-compose.yml
 ```
 
-Create the Docker Compose file:
-
-```bash
-cat > docker-compose.yml << 'EOF'
-services:
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: open-webui
-    restart: unless-stopped
-    ports:
-      - "3000:8080"
-    environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - WEBUI_AUTH=true
-      - WEBUI_NAME=My AI Assistant
-      - ENABLE_SIGNUP=false
-    volumes:
-      - open-webui-data:/app/backend/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-volumes:
-  open-webui-data:
-EOF
-```
+The compose runs two services: **`open-webui`** (the chat UI, exposed only on the internal Docker network) and **`caddy`** (a reverse proxy that obtains and auto-renews a Let's Encrypt cert for your domain).
 
 ### What each setting does
 
 | Setting | Purpose |
-|---------|---------|
+|---|---|
 | `OLLAMA_BASE_URL` | Tells Open WebUI where Ollama is running. `host.docker.internal` reaches the host machine from inside the container. |
 | `WEBUI_AUTH=true` | Requires login. The first user to register becomes the admin. |
 | `ENABLE_SIGNUP=false` | Prevents random people from creating accounts after you've registered. |
-| `ports: 3000:8080` | Maps the container's internal port 8080 to port 3000 on the host. |
+| `expose: 8080` | Open WebUI is reachable only inside the Docker network — Caddy fronts it. |
+| `caddy 80:80, 443:443` | Caddy terminates HTTPS and reverse-proxies to `open-webui:8080`. |
 | `open-webui-data` | Persists chat history and settings across container restarts. |
+
+### Set your domain
+
+You'll need a domain pointing to your droplet's IP (an `A` record). If you don't have one, [DuckDNS](https://duckdns.org) gives free subdomains.
+
+Edit the Caddyfile and replace `your-domain.com` with your actual domain:
+
+```bash
+nano Caddyfile
+```
+
+That's the only file edit required.
+
+### Don't have a domain yet?
+
+If you just want to verify Open WebUI works before setting up DNS, run *without* Caddy. Skip ahead to Step 3 with this override file:
+
+```bash
+cat > docker-compose.override.yml << 'EOF'
+services:
+  open-webui:
+    ports:
+      - "3000:8080"
+  caddy:
+    profiles: ["disabled"]
+EOF
+```
+
+This exposes Open WebUI on `http://your-server-ip:3000` directly and disables the Caddy service via Compose profiles. Delete the override file (`rm docker-compose.override.yml`) and `docker compose up -d` again once your domain is set up.
 
 ## Step 3: Start the Stack
 
+Open the firewall for HTTPS (only needed if you're running with Caddy):
+
 ```bash
-docker compose up -d
+sudo ufw allow 80
+sudo ufw allow 443
 ```
 
-Check that it's running:
+Then start everything:
 
 ```bash
+docker compose up -d
 docker compose ps
 docker compose logs -f open-webui
 ```
 
-Wait until you see the startup complete message in the logs. This usually takes 30–60 seconds on the first run while it initializes the database.
+Wait until you see the startup complete message in the logs. This usually takes 30–60 seconds on the first run while it initializes the database. Caddy will obtain a Let's Encrypt cert in parallel — its logs (`docker compose logs caddy`) will tell you when it's done.
 
 ## Step 4: Initial Setup
 
-1. Open your browser to `http://your-server-ip:3000`
-2. Register your admin account (first registration only)
-3. You should see Gemma 4 E2B listed as an available model
-4. Start chatting
+1. Open your browser to `https://your-domain.com` (or `http://your-server-ip:3000` if you used the no-domain override).
+2. Register your admin account (first registration only).
+3. You should see Gemma 4 E2B listed as an available model.
+4. Start chatting.
 
 If the model doesn't appear, check the connection:
 
@@ -104,78 +118,7 @@ If the model doesn't appear, check the connection:
 docker exec open-webui curl -s http://host.docker.internal:11434/api/tags | python3 -m json.tool
 ```
 
-## Step 5: Secure with HTTPS (Caddy Reverse Proxy)
-
-Running on plain HTTP is fine for testing but not for showing others. Caddy gives you automatic HTTPS with zero configuration.
-
-**You'll need a domain name** pointing to your droplet's IP. If you don't have one, you can use a free subdomain from services like DuckDNS or freedns.afraid.org.
-
-Add Caddy to your Docker Compose:
-
-```bash
-cat > docker-compose.yml << 'EOF'
-services:
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: open-webui
-    restart: unless-stopped
-    expose:
-      - "8080"
-    environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - WEBUI_AUTH=true
-      - WEBUI_NAME=My AI Assistant
-      - ENABLE_SIGNUP=false
-    volumes:
-      - open-webui-data:/app/backend/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - open-webui
-
-volumes:
-  open-webui-data:
-  caddy-data:
-  caddy-config:
-EOF
-```
-
-Create the Caddyfile:
-
-```bash
-cat > Caddyfile << 'EOF'
-your-domain.com {
-    reverse_proxy open-webui:8080
-}
-EOF
-```
-
-Replace `your-domain.com` with your actual domain.
-
-Open the firewall and restart:
-
-```bash
-ufw allow 80
-ufw allow 443
-docker compose down
-docker compose up -d
-```
-
-Caddy automatically obtains and renews TLS certificates from Let's Encrypt. Your chatbot is now accessible at `https://your-domain.com`.
-
-## Step 6: Customize the Experience
+## Step 5: Customize the Experience
 
 ### Set a default system prompt
 
@@ -218,12 +161,12 @@ Error: {paste error}
 Environment: {e.g., Docker on Ubuntu 24.04}
 ```
 
-## Step 7: Operational Basics
+## Step 6: Operational Basics
 
 ### Updating Open WebUI
 
 ```bash
-cd ~/chatbot
+cd ~/local-ai-agent-stack/02-self-hosted-chatbot
 docker compose pull
 docker compose up -d
 ```
