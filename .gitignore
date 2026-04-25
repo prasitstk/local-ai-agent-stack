@@ -1,0 +1,19 @@
+# Local Compose overrides — site-specific config, secrets, and dev tweaks.
+# Each part of this repo ships a base docker-compose.yml; readers layer
+# their own overrides locally. Never commit these.
+docker-compose.override.yml
+docker-compose.override.yaml
+**/docker-compose.override.yml
+**/docker-compose.override.yaml
+
+# Environment files (Compose auto-loads .env from the working dir).
+# Used for secrets like ACME email, future API keys, etc.
+.env
+.env.*
+!.env.example
+
+# Backup/editor noise.
+*.bak
+*.swp
+*~
+.DS_Store
