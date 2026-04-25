@@ -12,6 +12,13 @@ docker-compose.override.yaml
 .env.*
 !.env.example
 
+# Python — venvs, bytecode caches, packaging artifacts.
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
 # Backup/editor noise.
 *.bak
 *.swp
