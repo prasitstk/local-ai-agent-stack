@@ -111,12 +111,25 @@ Wait until you see the startup complete message in the logs. This usually takes 
 3. You should see Gemma 4 E2B listed as an available model.
 4. Start chatting to verify everything works.
 
-If the model doesn't appear, check the connection:
+If the model doesn't appear, run this connectivity check from inside the container:
 
 ```bash
-# From inside the container, can it reach Ollama?
-docker exec open-webui curl -s http://host.docker.internal:11434/api/tags | python3 -m json.tool
+docker exec open-webui curl -s --max-time 5 http://host.docker.internal:11434/api/tags | python3 -m json.tool
 ```
+
+You should see JSON listing `gemma4:e2b`. If instead the command hangs, or `python3 -m json.tool` errors with `Expecting value: line 1 column 1 (char 0)` (which just means it got empty stdin because curl produced no output), it's almost always your host firewall dropping traffic from the Compose project's bridge network.
+
+**Why this happens:** Compose creates a project-specific Docker network (e.g., `02-self-hosted-chatbot_default`) with its own bridge interface named `br-<hash>` — *not* `docker0`. A rule like `ufw allow in on docker0 to any port 11434` won't match traffic from that project bridge, so the packets get caught by your default deny-incoming policy and dropped silently.
+
+**Fix:** allow the entire Docker IP range, which covers `docker0` and every Compose project bridge (current and future):
+
+```bash
+sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp
+```
+
+This does **not** expose Ollama publicly — internet traffic doesn't have a source IP in `172.16.0.0/12`, so the rule is host-internal only. Re-run the connectivity check; you should now get JSON, and reloading the Open WebUI page will populate the model dropdown.
+
+If you want to dig further, run `sudo tcpdump -ni any port 11434` in a second shell while the curl is in flight — you'll see whether SYNs reach the host and whether anything comes back.
 
 ### Lock down signup
 
@@ -233,14 +246,14 @@ docker system df
 
 | Problem | Solution |
 |---------|----------|
-| Model not showing up | Run `docker exec open-webui curl http://host.docker.internal:11434/api/tags` to check connectivity |
+| Model not showing up | Run the connectivity check from Step 4. Most common cause is UFW blocking the Compose project bridge — fix is `sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp`. |
 | Slow first response | Normal — model loads into RAM on first request. Keep Ollama running to avoid cold starts. |
 | Out of memory | Check `docker stats`. Open WebUI itself uses ~500 MB. Combined with Ollama (~3 GB), you need headroom. |
 | Chat history lost | Make sure the `open-webui-data` volume is defined in `docker-compose.yml` |
 
 ## What I Learned
 
-1. **Docker networking has nuances.** The `host.docker.internal` trick is the cleanest way to reach host services from containers without using `--network host`, which would bypass Docker's network isolation.
+1. **Docker networking has nuances.** The `host.docker.internal` trick is the cleanest way to reach host services from containers without using `--network host`, which would bypass Docker's network isolation. But there's a sharp edge: Compose creates project-specific bridges (`br-<hash>`), not `docker0`, so host firewall rules pinned to the `docker0` interface won't match traffic from those containers. Allow by source IP range (`172.16.0.0/12`) instead — it's local-only and survives bridge churn.
 2. **Caddy is underrated.** Compared to Nginx + Certbot, Caddy handles HTTPS automatically with near-zero configuration. For small deployments like this, it's perfect.
 3. **Open WebUI is surprisingly complete.** It supports multiple models, RAG (document upload), prompt templates, user management, and even image generation. We're only scratching the surface here.
 4. **Backups are easy to forget.** The Docker volume approach makes it simple, but you have to actually set up the cron job. Don't lose your conversation history like I almost did.
