@@ -1,0 +1,4 @@
+# Replace with your actual domain
+your-domain.com {
+    reverse_proxy open-webui:8080
+}
