@@ -31,17 +31,19 @@ The model never runs code itself. It outputs a structured request saying "call t
 
 ## Step 1: Set Up the Python Environment
 
+This part of the repo ships ready-to-run: `01_basic_tool.py`, `02_multi_tools.py`, `03_agent_loop.py`, the shared `multi_tools_lib.py`, and `requirements.txt`. Don't recreate them — `cd` into the directory and use what's there:
+
 ```bash
-mkdir -p ~/function-calling && cd ~/function-calling
+cd ~/local-ai-agent-stack/03-function-calling-basics
 
 python3 -m venv venv
 source venv/bin/activate
-pip install requests
+pip install -r requirements.txt
 ```
 
 ## Step 2: Your First Tool Call
 
-Create `01_basic_tool.py`:
+`01_basic_tool.py` ships in the repo. Read along with the source below, then run it. The code:
 
 ```python
 """
@@ -193,7 +195,12 @@ You should see the model requesting a tool call for the time question, your code
 
 ## Step 3: Multiple Tools
 
-Now let's give the model several tools to choose from. Create `02_multi_tools.py`:
+Now let's give the model several tools to choose from. On disk this step is split into **two** files so Step 4 can reuse the tool definitions without copy-paste:
+
+- `multi_tools_lib.py` — tool implementations + `TOOLS` schema + `AVAILABLE_FUNCTIONS` map
+- `02_multi_tools.py` — the driver script that imports from the lib and runs the four test queries
+
+The code below is shown as one self-contained block for pedagogy — when you read the actual files, the tool defs live in the lib and the driver is a thin import.
 
 ```python
 """
@@ -419,7 +426,7 @@ Watch which tool the model selects for each question. The key insight: the model
 
 ## Step 4: Conversational Agent with Tool Memory
 
-Create `03_agent_loop.py` — a persistent chat session where the model remembers previous tool results:
+`03_agent_loop.py` ships in the repo — a persistent chat session where the model remembers previous tool results. It imports `TOOLS` and `AVAILABLE_FUNCTIONS` from `multi_tools_lib.py` (no manual extraction needed). Source:
 
 ```python
 """
@@ -520,14 +527,6 @@ if __name__ == "__main__":
     main()
 ```
 
-Create the shared tool library `multi_tools_lib.py` so the agent loop can import it:
-
-```bash
-# Copy the TOOLS, AVAILABLE_FUNCTIONS, and function definitions
-# from 02_multi_tools.py into multi_tools_lib.py
-# (Extract everything except the __main__ block)
-```
-
 Run the interactive agent:
 
 ```bash
@@ -547,13 +546,59 @@ Notice how the model keeps context — the second question references "that" (th
 
 ## Understanding the Mechanics
 
-### What the model actually sees
+### Who defines the tool schema (and what does the model actually see)?
 
-When you send tool definitions, the model receives them as part of its prompt context. It doesn't "know" about your Python functions — it only sees the JSON schema describing what's available.
+The `TOOLS` JSON in your Python code is governed by **three different specs working in layers** — none of them are Ollama's invention:
+
+| Layer | What it covers | Defined by |
+|---|---|---|
+| 1. Outer envelope | `{"type": "function", "function": {"name", "description", "parameters"}}` | **OpenAI's Chat Completions tool spec.** Ollama adopted it for compatibility, so the same client code can target OpenAI, Anthropic, Together, Groq, etc. with only a base-URL change. |
+| 2. `parameters` body | `{"type": "object", "properties": {...}, "required": [...]}` | **JSON Schema (Draft 2020-12).** OpenAI's tool spec just says "use JSON Schema here," so anything valid in JSON Schema works. |
+| 3. What the model actually reads | A model-specific text format with special tokens / tags | **The model's authors during fine-tuning**, encoded in Ollama's Modelfile `TEMPLATE` directive. Gemma 4, Llama 3, Hermes, Qwen each have a different native format. |
+
+The model itself **never sees the JSON you wrote**. Ollama does two-way translation between Layers 1+2 and Layer 3:
+
+```
+Your Python (OpenAI envelope + JSON Schema)
+        │
+        ▼
+    Ollama  ──── applies the model's Modelfile TEMPLATE ────►
+        │
+        ▼
+Final prompt the model sees — Gemma 4-specific text format with
+the tool definitions inlined (no JSON, no envelope)
+        │
+        ▼
+    Model emits tokens in its trained tool-call format
+        │
+        ▼
+    Ollama parses those tokens and hands them back to your code
+    as a structured `tool_calls` field — in the OpenAI shape (Layer 1)
+```
+
+You can inspect Layer 3 yourself:
+
+```bash
+# See the chat template that converts your TOOLS list into the actual prompt
+ollama show gemma4:e2b --modelfile
+```
+
+Look at the `TEMPLATE` block — that's the literal Go template Ollama runs. To watch the fully-rendered prompt for a real call, enable Ollama's debug logs:
+
+```bash
+sudo systemctl edit ollama
+# Add: Environment="OLLAMA_DEBUG=1"
+sudo systemctl restart ollama
+journalctl -u ollama -f
+```
+
+Now run `01_basic_tool.py` and you'll see exactly how your `TOOLS` JSON got translated into Gemma 4's native tool format.
+
+This layered design is why the same code is portable across providers: **Layers 1 and 2 are open standards.** Point `OLLAMA_URL` at OpenAI's endpoint with an API key and the same `TOOLS` list works unchanged — each provider handles its own Layer 3 internally.
 
 ### What the model actually outputs
 
-When it decides to call a tool, the raw response includes a structured `tool_calls` field instead of (or alongside) regular text content. Your code parses this structured output and maps it to real function calls.
+The model emits tokens in its trained Layer 3 format. Ollama parses those tokens and surfaces them to your code as a structured `tool_calls` field on the assistant message — back in the OpenAI shape. Your code never sees the model's native format; it just iterates over `assistant_message["tool_calls"]`.
 
 ### Why descriptions matter
 
