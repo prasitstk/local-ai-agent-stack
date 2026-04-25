@@ -600,6 +600,43 @@ This layered design is why the same code is portable across providers: **Layers 
 
 The model emits tokens in its trained Layer 3 format. Ollama parses those tokens and surfaces them to your code as a structured `tool_calls` field on the assistant message — back in the OpenAI shape. Your code never sees the model's native format; it just iterates over `assistant_message["tool_calls"]`.
 
+### What the four message roles mean
+
+Every entry in the `messages` list has a `role`. Ollama's `/api/chat` accepts exactly four — there's no fifth role you're missing:
+
+| Role | Who's "speaking" | When to use it |
+|---|---|---|
+| `system` | The developer / app | First message; sets persona, constraints, behavior. Optional but usually present. |
+| `user` | The human end-user | Each new question or instruction. |
+| `assistant` | The model | The model's reply — text in `content`, a `tool_calls` array, or both. Replay these back as conversation history. |
+| `tool` | Your code (the function executor) | The result of running a function the model requested. Always follows an `assistant` message containing `tool_calls`. |
+
+A typical tool-using turn threads like this — exactly what `01_basic_tool.py`'s `messages` list grows into:
+
+```
+system    → "You are a helpful assistant. Use tools when needed."
+user      → "What time is it in Bangkok?"
+assistant → tool_calls: [{name: "get_current_time", args: {timezone: "Asia/Bangkok"}}]
+tool      → '{"timezone": "Asia/Bangkok", "time": "2026-04-25 19:30:00"}'
+assistant → "It's 7:30 PM in Bangkok."
+```
+
+A few rules worth knowing:
+
+- **`tool` must follow `assistant(tool_calls)`.** You can't drop a `tool` message in unprompted; the model needs the preceding `tool_calls` to know what it's an answer to.
+- **An `assistant` message can carry text AND tool calls.** A single turn can be `{role: "assistant", content: "Let me check.", tool_calls: [...]}` — though models usually emit one or the other.
+- **Multiple tool calls in one turn → multiple `tool` messages.** If one assistant turn returns 3 tool calls, you append 3 `tool` messages, in order, before sending back.
+- **Re-injecting `system` mid-conversation works** if you need to remind the model of constraints, but most setups have exactly one at index 0.
+
+Other roles you might see in the wild but **Ollama doesn't accept**:
+
+| Role | Origin | Why it doesn't apply here |
+|---|---|---|
+| `function` | OpenAI's pre-2023 tool-calling spec | Replaced by `tool` in modern OpenAI. If you copy old examples, change `function` → `tool` and put the call request on the `assistant` side as `tool_calls`. |
+| `developer` | OpenAI's 2024 reasoning-model API (o1/o3) | OpenAI-specific. Just use `system` for the same purpose. |
+
+The portable subset across every major Chat Completions-compatible provider is exactly the four Ollama supports — your code is already future-proof on this front.
+
 ### Why descriptions matter
 
 The model chooses tools based on the `description` field in each schema. Vague descriptions lead to wrong tool selection. Be specific about what each tool does and when to use it.
