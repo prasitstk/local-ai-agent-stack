@@ -20,33 +20,38 @@ This guide applies the same defense-in-depth approach used in production systems
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     DigitalOcean Droplet                          │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐      │
-│  │  agent-net   (internal — no internet egress)            │      │
-│  │                                                        │      │
-│  │  ┌─────────────┐         ┌────────────────────────┐    │      │
-│  │  │   Ollama    │◄────────│  Agent Container        │    │      │
-│  │  │  (LLM API)  │         │  • Nanobot Agent Engine │    │      │
-│  │  │             │         │  • Tool defs + /workspace│   │      │
-│  │  │             │         │  • Read-only filesystem │    │      │
-│  │  │             │         │  • cap_drop ALL         │    │      │
-│  │  │             │         │  • Resource limits      │    │      │
-│  │  │             │         │  • No internet path     │    │      │
-│  │  └──────┬──────┘         └────────────────────────┘    │      │
-│  └─────────┼────────────────────────────────────────────────┘     │
-│            │ (Ollama is also on a second network)                 │
-│  ┌─────────┴──────────┐                                           │
-│  │   ollama-net       │ ──► registry.ollama.ai  (model pulls)     │
-│  │   (egress)         │                                           │
-│  └────────────────────┘                                           │
-│                                                                  │
-│  ┌──────────────┐                                                 │
-│  │  Open WebUI  │ (from Part 02, optional)                        │
-│  └──────────────┘                                                 │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                       DigitalOcean Droplet                          │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────┐      │
+│  │  agent-net  (internal — no internet egress)                │      │
+│  │                                                          │      │
+│  │   ┌────────────────────────────────────────┐             │      │
+│  │   │  Agent Container                        │             │      │
+│  │   │  • Nanobot Agent Engine                 │             │      │
+│  │   │  • Tool defs + /workspace (rw)          │             │      │
+│  │   │  • Read-only filesystem                 │             │      │
+│  │   │  • cap_drop ALL                         │             │      │
+│  │   │  • Resource limits                      │             │      │
+│  │   │  • No internet path                     │             │      │
+│  │   └────────────────┬───────────────────────┘             │      │
+│  └────────────────────┼──────────────────────────────────────┘     │
+│                       │ http://host.docker.internal:11434           │
+│                       │ (bridge gateway — local, no NAT)            │
+│                       ▼                                            │
+│  ┌────────────────────────────────────────────┐                    │
+│  │  Host Ollama  (systemd, from Part 01)       │ ──► registry.ollam│
+│  │  • Listens on 0.0.0.0:11434                 │     (model pulls)  │
+│  │  • Holds gemma4:e2b in RAM (~7 GiB)         │                    │
+│  └────────────────────────────────────────────┘                    │
+│                                                                    │
+│  ┌──────────────┐                                                   │
+│  │  Open WebUI  │ (Part 02 — also reuses host Ollama)                │
+│  └──────────────┘                                                   │
+└────────────────────────────────────────────────────────────────────┘
 ```
+
+The agent does not run its own Ollama — it talks to **Part 01's host Ollama** through the host-gateway. This is a deliberate choice for an 8 GB droplet: `gemma4:e2b` needs ~7 GiB of RAM to load, which doesn't leave room for two copies on this hardware. Reusing the single host Ollama also matches Part 02's pattern (Open WebUI does the same thing).
 
 ## Step 1: Project Setup
 
@@ -118,7 +123,7 @@ agent:
   name: "local-assistant"
   description: "A general-purpose local AI assistant with DevOps tools"
   model: "gemma4:e2b"
-  ollama_url: "http://ollama:11434"
+  ollama_url: "http://host.docker.internal:11434"
 
   # Limit conversation depth to prevent runaway token usage
   max_turns: 20
@@ -234,7 +239,7 @@ def tool_disk_usage(**kwargs) -> str:
 
 def tool_service_status(service: str = "ollama") -> str:
     """Check if Ollama is reachable (the only service we should access)."""
-    allowed_services = {"ollama": "http://ollama:11434"}
+    allowed_services = {"ollama": "http://host.docker.internal:11434"}
     if service not in allowed_services:
         return json.dumps({
             "error": f"Access denied. Can only check: {list(allowed_services.keys())}"
@@ -465,31 +470,10 @@ if __name__ == "__main__":
 
 ## Step 5: Docker Compose with Security Hardening
 
-The shipped `docker-compose.yml` wires Ollama and the agent together with all the security hardening:
+The shipped `docker-compose.yml` defines the agent container and its isolated network. Ollama itself is **not** in this compose — the agent reaches the host's Ollama (from Part 01) via `host.docker.internal`, which works even on an `internal` bridge because the host gateway is a local route, not internet egress.
 
 ```yaml
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    restart: unless-stopped
-    volumes:
-      - ollama-models:/root/.ollama
-    networks:
-      # agent-net (internal) — how the agent reaches Ollama.
-      # ollama-net (egress)  — how Ollama reaches registry.ollama.ai
-      #                         to pull models. The agent is NOT on
-      #                         this network, so its no-internet
-      #                         guarantee is unchanged.
-      - agent-net
-      - ollama-net
-    # Resource limits for the LLM server
-    deploy:
-      resources:
-        limits:
-          memory: 6G
-          cpus: "3.0"
-
   agent:
     build:
       context: ./agent
@@ -499,6 +483,12 @@ services:
     tty: true
     networks:
       - agent-net
+    extra_hosts:
+      # host.docker.internal resolves to the host's bridge-gateway IP.
+      # The agent reaches the host's Ollama (Part 01) at this address.
+      # Works even on an `internal` network because the gateway IP is
+      # local to the bridge — no NAT egress required.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Workspace is the ONLY writable mount
       - ./workspace:/workspace
@@ -515,19 +505,17 @@ services:
         limits:
           memory: 512M
           cpus: "0.5"
-    # No port exposure — agent has no inbound network access
-    # It can only reach ollama via the internal network
+    # No port exposure — agent has no inbound network access.
+    # Outbound is restricted to the host's Ollama via the bridge gateway;
+    # `internal: true` blocks any path to the public internet.
 
 networks:
   agent-net:
     driver: bridge
     internal: true  # No internet access for anything on this network
-  ollama-net:
-    driver: bridge  # Default = has egress; only ollama is attached here
-
-volumes:
-  ollama-models:
 ```
+
+> **Prerequisite for this to work:** Part 01's host Ollama must be running and bound to `0.0.0.0:11434` (the `OLLAMA_HOST` override from Step 6 of Part 01) so the agent container can reach it across the bridge gateway. If you firewalled port 11434 with UFW, make sure the rule `sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp` is in place — that's what we added back in Part 02 to let Compose project bridges reach the host's Ollama.
 
 ### Security layers explained
 
@@ -544,15 +532,16 @@ volumes:
 
 ## Step 6: Build and Run
 
+The model already lives in the host's Ollama (from Part 01's `ollama pull gemma4:e2b`), so all that's left is to build and start the agent container.
+
 ```bash
 cd ~/local-ai-agent-stack/04-nanobot-local-agent
 
-# Pull Ollama and load the model
-docker compose up -d ollama
-docker exec ollama ollama pull gemma4:e2b
-
-# Build and start the agent
+# Build the agent image
 docker compose build agent
+
+# Run the agent — it reaches the host's Ollama at
+# http://host.docker.internal:11434
 docker compose run --rm agent
 ```
 

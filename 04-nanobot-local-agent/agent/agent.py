@@ -60,7 +60,7 @@ def tool_disk_usage(**kwargs) -> str:
 
 def tool_service_status(service: str = "ollama") -> str:
     """Check if Ollama is reachable (the only service we should access)."""
-    allowed_services = {"ollama": "http://ollama:11434"}
+    allowed_services = {"ollama": "http://host.docker.internal:11434"}
     if service not in allowed_services:
         return json.dumps({
             "error": f"Access denied. Can only check: {list(allowed_services.keys())}"

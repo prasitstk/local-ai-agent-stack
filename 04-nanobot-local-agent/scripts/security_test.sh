@@ -59,7 +59,7 @@ fi
 run_test "No internet access" "python3 -c \"import urllib.request; urllib.request.urlopen('https://google.com', timeout=5)\""
 
 printf "%-50s" "Can reach Ollama"
-if docker compose run --rm --no-TTY agent python3 -c "import requests; r=requests.get('http://ollama:11434', timeout=5); print(r.status_code)" 2>&1 | grep -q "200"; then
+if docker compose run --rm --no-TTY agent python3 -c "import requests; r=requests.get('http://host.docker.internal:11434', timeout=5); print(r.status_code)" 2>&1 | grep -q "200"; then
     echo "PASS"
     PASS=$((PASS + 1))
 else

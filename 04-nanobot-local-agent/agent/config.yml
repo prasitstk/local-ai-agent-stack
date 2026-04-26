@@ -3,7 +3,7 @@ agent:
   name: "local-assistant"
   description: "A general-purpose local AI assistant with DevOps tools"
   model: "gemma4:e2b"
-  ollama_url: "http://ollama:11434"
+  ollama_url: "http://host.docker.internal:11434"
 
   # Limit conversation depth to prevent runaway token usage
   max_turns: 20

@@ -1,25 +1,4 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    restart: unless-stopped
-    volumes:
-      - ollama-models:/root/.ollama
-    networks:
-      # agent-net (internal) — how the agent reaches Ollama.
-      # ollama-net (egress)  — how Ollama reaches registry.ollama.ai
-      #                         to pull models. The agent is NOT on
-      #                         this network, so its no-internet
-      #                         guarantee is unchanged.
-      - agent-net
-      - ollama-net
-    # Resource limits for the LLM server
-    deploy:
-      resources:
-        limits:
-          memory: 6G
-          cpus: "3.0"
-
   agent:
     build:
       context: ./agent
@@ -29,6 +8,12 @@ services:
     tty: true
     networks:
       - agent-net
+    extra_hosts:
+      # host.docker.internal resolves to the host's bridge-gateway IP.
+      # The agent reaches the host's Ollama (Part 01) at this address.
+      # Works even on an `internal` network because the gateway IP is
+      # local to the bridge — no NAT egress required.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Workspace is the ONLY writable mount
       - ./workspace:/workspace
@@ -45,15 +30,11 @@ services:
         limits:
           memory: 512M
           cpus: "0.5"
-    # No port exposure — agent has no inbound network access
-    # It can only reach ollama via the internal network
+    # No port exposure — agent has no inbound network access.
+    # Outbound is restricted to the host's Ollama via the bridge gateway;
+    # `internal: true` blocks any path to the public internet.
 
 networks:
   agent-net:
     driver: bridge
     internal: true  # No internet access for anything on this network
-  ollama-net:
-    driver: bridge  # Default = has egress; only ollama is attached here
-
-volumes:
-  ollama-models:
