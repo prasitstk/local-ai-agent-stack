@@ -739,6 +739,25 @@ docker compose run --rm agent sh -c "whoami && id"
 # Should be blocked by the sanitizer.
 ```
 
+## Step 10: Tear It Down
+
+Removes the agent containers, the optional stats sidecar, the built image, and the workspace.
+
+```bash
+cd ~/local-ai-agent-stack/04-nanobot-local-agent
+
+# Stop everything (base + optional stats sidecar) and clean up networks
+sudo docker compose -f docker-compose.yml -f docker-compose.stats.yml down -v --remove-orphans
+
+# Remove the locally built agent image and the docker:cli image used by the sidecar
+sudo docker image rm 04-nanobot-local-agent-agent:latest docker:cli
+
+# Workspace files are owned by uid 10001 (the in-container `agent` user), so this needs sudo
+sudo rm -rf workspace
+```
+
+If you also want to remove the Open WebUI stack from Part 02 and the Ollama backend from Part 01, walk back through their teardown steps in reverse order: Part 04 → Part 02 → Part 01.
+
 ## What I Learned
 
 1. **Security is layers, not walls.** No single measure is enough. Read-only filesystems don't help if the agent has internet access. Network isolation doesn't help if the agent can write to the Docker socket. Each layer covers a different attack vector.

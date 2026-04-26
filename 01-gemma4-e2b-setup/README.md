@@ -285,6 +285,28 @@ ps aux | grep ollama
 watch -n 1 free -h
 ```
 
+## Step 8: Tear It Down
+
+Removes the Ollama service, its model cache, and the user/group the installer created. Don't run this if you're moving on to Parts 02–04 — they all reuse this Ollama instance. Tear those down first.
+
+```bash
+# Stop the service and remove its systemd unit + override
+sudo systemctl stop ollama
+sudo systemctl disable ollama
+sudo rm -rf /etc/systemd/system/ollama.service.d
+sudo rm -f /etc/systemd/system/ollama.service
+sudo systemctl daemon-reload
+
+# Remove the binary, models, user, and per-user history
+sudo rm -f /usr/local/bin/ollama
+sudo rm -rf /usr/share/ollama
+sudo userdel ollama 2>/dev/null
+sudo groupdel ollama 2>/dev/null
+rm -rf ~/.ollama
+```
+
+Reclaims the model size on disk (≈ 7.2 GB for `gemma4:e2b`). Leaves the base `apt` packages from Step 1 (`curl`, `wget`, `htop`) alone — they're harmless and likely useful elsewhere.
+
 ## What I Learned
 
 1. **Quantization matters on CPU.** The default GGUF quantization Ollama uses works well. Going to full precision would be impractical on 8 GB RAM.

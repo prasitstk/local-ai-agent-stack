@@ -672,6 +672,17 @@ The examples above are minimal for clarity. In a real system, you'd want to:
 - Limit the number of tool-call rounds to prevent infinite loops
 - Log every tool call for debugging
 
+## Tear It Down
+
+Part 03 only adds a Python venv and a `__pycache__` to the working directory:
+
+```bash
+cd ~/local-ai-agent-stack/03-function-calling-basics
+rm -rf venv __pycache__
+```
+
+Nothing else on the system was touched — Ollama and `gemma4:e2b` from Part 01 are reused as-is.
+
 ## What I Learned
 
 1. **Function calling is just structured output.** There's no magic. The model outputs JSON saying "call X with Y," and your code does the rest. Understanding this demystifies every agent framework.

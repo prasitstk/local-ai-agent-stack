@@ -251,6 +251,29 @@ docker system df
 | Out of memory | Check `docker stats`. Open WebUI itself uses ~500 MB. Combined with Ollama (~3 GB), you need headroom. |
 | Chat history lost | Make sure the `open-webui-data` volume is defined in `docker-compose.yml` |
 
+## Step 7: Tear It Down
+
+Removes the Open WebUI stack — containers, the chat-history volume, the image, and the firewall openings.
+
+```bash
+cd ~/local-ai-agent-stack/02-self-hosted-chatbot
+
+# Stop containers and delete the chat-history volume
+docker compose down -v --remove-orphans
+
+# Remove the image (skip if you plan to redeploy soon)
+docker image rm ghcr.io/open-webui/open-webui:main
+
+# Revert the firewall rules from Step 1 and Step 4
+sudo ufw delete allow 80
+sudo ufw delete allow 443
+sudo ufw delete allow from 172.16.0.0/12 to any port 11434 proto tcp
+```
+
+`-v` deletes the `open-webui-data` volume — i.e. all chat history and settings. Skip the `-v` if you want to keep them.
+
+The Docker engine and your `docker` group membership are intentionally left in place — Part 04 needs them too. The Ollama backend from Part 01 is also untouched.
+
 ## What I Learned
 
 1. **Docker networking has nuances.** The `host.docker.internal` trick is the cleanest way to reach host services from containers without using `--network host`, which would bypass Docker's network isolation. But there's a sharp edge: Compose creates project-specific bridges (`br-<hash>`), not `docker0`, so host firewall rules pinned to the `docker0` interface won't match traffic from those containers. Allow by source IP range (`172.16.0.0/12`) instead — it's local-only and survives bridge churn.
