@@ -1,7 +1,10 @@
 FROM python:3.12-slim
 
-# Security: run as non-root user
-RUN groupadd -r agent && useradd -r -g agent -m -s /bin/bash agent
+# Security: run as non-root user. UID/GID are pinned to 10001 so the
+# host's bind-mounted ./workspace can be chowned to match (see Step 1
+# in README) — otherwise the in-container `agent` user can't write to
+# /workspace, since bind mounts preserve host ownership.
+RUN groupadd -g 10001 agent && useradd -u 10001 -g agent -m -s /bin/bash agent
 
 # Install dependencies
 COPY requirements.txt /tmp/requirements.txt

@@ -58,6 +58,17 @@ cd ~/local-ai-agent-stack/04-nanobot-local-agent
 
 The `workspace/` directory (writable, gitignored) is created automatically by Docker Compose when the stack starts.
 
+### One-time: make the workspace writable by the agent user
+
+The agent runs inside the container as a non-root user with **UID/GID 10001** (pinned in `agent/Dockerfile`). The `./workspace` bind mount preserves *host* ownership, so on first use you must chown the host directory to match — otherwise `agent.py` will fail with `PermissionError: [Errno 13] Permission denied: '/workspace/logs'`:
+
+```bash
+sudo mkdir -p workspace
+sudo chown -R 10001:10001 workspace
+```
+
+Do this once. After that, every `docker compose run --rm agent` writes logs into `./workspace/logs/agent.log` — visible from the host without `docker exec`.
+
 ## Step 2: The Agent Container
 
 The shipped `agent/Dockerfile` enforces security at the container level:
@@ -65,8 +76,11 @@ The shipped `agent/Dockerfile` enforces security at the container level:
 ```dockerfile
 FROM python:3.12-slim
 
-# Security: run as non-root user
-RUN groupadd -r agent && useradd -r -g agent -m -s /bin/bash agent
+# Security: run as non-root user. UID/GID are pinned to 10001 so the
+# host's bind-mounted ./workspace can be chowned to match (see Step 1
+# in README) — otherwise the in-container `agent` user can't write to
+# /workspace, since bind mounts preserve host ownership.
+RUN groupadd -g 10001 agent && useradd -u 10001 -g agent -m -s /bin/bash agent
 
 # Install dependencies
 COPY requirements.txt /tmp/requirements.txt
