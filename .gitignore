@@ -19,6 +19,9 @@ __pycache__/
 venv/
 .venv/
 
+# Runtime workspace directories — containers' writable state, logs, etc.
+04-nanobot-local-agent/workspace/
+
 # Backup/editor noise.
 *.bak
 *.swp
