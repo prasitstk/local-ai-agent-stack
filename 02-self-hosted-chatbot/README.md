@@ -181,14 +181,15 @@ explaining the key parts. If you're unsure about something, say so.
 Open WebUI supports saved prompt templates. Some useful ones to create:
 
 **Code Review:**
-```
+
+````
 Review this code for bugs, security issues, and improvement opportunities.
 Focus on practical issues, not style preferences.
 
 ```code
 {paste code here}
 ```
-```
+````
 
 **Explain Like a README:**
 ```
