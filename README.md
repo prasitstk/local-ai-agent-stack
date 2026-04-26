@@ -17,7 +17,7 @@ Each part builds on the previous one. By the end, you'll have a fully working AI
 | 01 | [Getting Started with Gemma 4 E2B](./01-gemma4-e2b-setup/) | Local LLM running on a cloud server | Ollama, model serving, benchmarking |
 | 02 | [Self-Hosted AI Chatbot](./02-self-hosted-chatbot/) | ChatGPT-like web interface you own | Docker Compose, reverse proxy, Open WebUI |
 | 03 | [Function Calling from Scratch](./03-function-calling-basics/) | AI that can use external tools | Python, tool schemas, structured output |
-| 04 | [Building a Local AI Agent](./04-nanobot-local-agent/) | Security-hardened autonomous agent | Nanobot, container isolation, agent loops |
+| 04 | [Building a Local AI Agent](./04-local-ai-agent/) | Security-hardened autonomous agent | Container isolation, agent loops |
 
 ## Hardware Requirements
 
@@ -62,7 +62,7 @@ Verify with `free -h`. Inference is slightly slower when paging, but unblocks th
 │  │ Gemma 4  │◄──│  Python Agent Scripts  │  │
 │  │  E2B     │   └────────────────────────┘  │
 │  │          │   ┌────────────────────────┐  │
-│  │          │◄──│  Nanobot Agent Engine   │  │
+│  │          │◄──│  Local Agent Engine    │  │
 │  └──────────┘   └────────────────────────┘  │
 └─────────────────────────────────────────────┘
 ```

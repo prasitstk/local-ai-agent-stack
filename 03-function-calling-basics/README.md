@@ -704,4 +704,4 @@ Nothing else on the system was touched — Ollama and `gemma4:e2b` from Part 01 
 
 ## Next
 
-In [Part 04](../04-nanobot-local-agent/), we'll integrate everything into a proper agent framework with container isolation and security hardening — taking what we built manually and making it production-ready.
+In [Part 04](../04-local-ai-agent/), we'll integrate everything into a proper agent framework with container isolation and security hardening — taking what we built manually and making it production-ready.

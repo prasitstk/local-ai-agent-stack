@@ -1,6 +1,6 @@
 # 04 — Building a Security-Hardened Local AI Agent
 
-Integrate Gemma 4 E2B with the Nanobot agent framework, running inside isolated containers with network controls, read-only filesystems, and resource limits. This is where everything comes together.
+Run Gemma 4 E2B as a tool-using agent inside an isolated container with network controls, read-only filesystems, and resource limits. This is where everything comes together.
 
 > **Prerequisites:**
 > - [Part 01](../01-gemma4-e2b-setup/) — Ollama with Gemma 4 E2B running
@@ -28,7 +28,7 @@ This guide applies the same defense-in-depth approach used in production systems
 │  │                                                          │      │
 │  │   ┌────────────────────────────────────────┐             │      │
 │  │   │  Agent Container                        │             │      │
-│  │   │  • Nanobot Agent Engine                 │             │      │
+│  │   │  • Local Agent Engine                   │             │      │
 │  │   │  • Tool defs + /workspace (rw)          │             │      │
 │  │   │  • Read-only filesystem                 │             │      │
 │  │   │  • cap_drop ALL                         │             │      │
@@ -58,7 +58,7 @@ The agent does not run its own Ollama — it talks to **Part 01's host Ollama** 
 This part of the repo ships ready-to-run: `docker-compose.yml`, the `agent/` directory (Dockerfile, `agent.py`, `config.yml`, `requirements.txt`), `scripts/security_test.sh`, and `docker-compose.stats.yml` for the optional Step 8 sidecar. Don't recreate them — `cd` into the directory:
 
 ```bash
-cd ~/local-ai-agent-stack/04-nanobot-local-agent
+cd ~/local-ai-agent-stack/04-local-ai-agent
 ```
 
 The `workspace/` directory (writable, gitignored) is created automatically by Docker Compose when the stack starts.
@@ -558,7 +558,7 @@ networks:
 The model already lives in the host's Ollama (from Part 01's `ollama pull gemma4:e2b`), so all that's left is to build and start the agent container.
 
 ```bash
-cd ~/local-ai-agent-stack/04-nanobot-local-agent
+cd ~/local-ai-agent-stack/04-local-ai-agent
 
 # Build the agent image
 docker compose build agent
@@ -631,7 +631,7 @@ Every user input, every tool call with arguments, every tool result, every assis
   Restart it (`docker compose up -d`) when you're done with Part 04.
 - **`compose down` says `Resource is still in use`.** A prior `compose run --rm agent` left a stopped container attached to `agent-net`. Force-clean and retry:
   ```bash
-  sudo docker ps -aq --filter "network=04-nanobot-local-agent_agent-net" \
+  sudo docker ps -aq --filter "network=04-local-ai-agent_agent-net" \
     | xargs -r sudo docker rm -f
   sudo docker compose down
   ```
@@ -744,13 +744,13 @@ docker compose run --rm agent sh -c "whoami && id"
 Removes the agent containers, the optional stats sidecar, the built image, and the workspace.
 
 ```bash
-cd ~/local-ai-agent-stack/04-nanobot-local-agent
+cd ~/local-ai-agent-stack/04-local-ai-agent
 
 # Stop everything (base + optional stats sidecar) and clean up networks
 sudo docker compose -f docker-compose.yml -f docker-compose.stats.yml down -v --remove-orphans
 
 # Remove the locally built agent image and the docker:cli image used by the sidecar
-sudo docker image rm 04-nanobot-local-agent-agent:latest docker:cli
+sudo docker image rm 04-local-ai-agent-agent:latest docker:cli
 
 # Workspace files are owned by uid 10001 (the in-container `agent` user), so this needs sudo
 sudo rm -rf workspace
@@ -769,7 +769,7 @@ If you also want to remove the Open WebUI stack from Part 02 and the Ollama back
 ## Files in This Repo
 
 ```
-04-nanobot-local-agent/
+04-local-ai-agent/
 ├── README.md                    # This guide
 ├── docker-compose.yml           # Base stack with security hardening
 ├── docker-compose.stats.yml     # Optional stats-collector sidecar (Step 8)
@@ -793,4 +793,4 @@ This is the foundation. Some directions to explore next:
 - **Swap the model** — replace Gemma 4 E2B with a cloud API for complex tasks while keeping the same agent framework
 - **Add RAG** — use Open WebUI's document upload feature or build your own retrieval pipeline for domain-specific knowledge
 
-The security patterns here scale to any agent framework. Whether you use Nanobot, LangChain, or build your own — the container isolation, network controls, and prompt sanitization apply universally.
+The security patterns here scale to any agent framework. Whether you adopt an agent framework or build your own — the container isolation, network controls, and prompt sanitization apply universally.
