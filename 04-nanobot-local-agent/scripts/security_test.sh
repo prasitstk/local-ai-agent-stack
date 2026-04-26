@@ -17,7 +17,7 @@ run_test() {
 
     printf "%-50s" "$label"
 
-    if output=$(docker compose run --rm --no-TTY agent sh -c "$cmd" 2>&1); then
+    if output=$(docker compose run --rm --no-TTY --entrypoint "" agent sh -c "$cmd" 2>&1); then
         if [ "$expect_fail" = "true" ]; then
             echo "FAIL (should have been denied)"
             FAIL=$((FAIL + 1))
@@ -46,7 +46,7 @@ run_test "No exec in /tmp" "cp /bin/echo /tmp/echo && /tmp/echo test"
 
 # User tests
 printf "%-50s" "Running as non-root"
-uid=$(docker compose run --rm --no-TTY agent id -u 2>&1)
+uid=$(docker compose run --rm --no-TTY --entrypoint "" agent id -u 2>/dev/null)
 if [ "$uid" != "0" ]; then
     echo "PASS (uid=$uid)"
     PASS=$((PASS + 1))
@@ -59,7 +59,7 @@ fi
 run_test "No internet access" "python3 -c \"import urllib.request; urllib.request.urlopen('https://google.com', timeout=5)\""
 
 printf "%-50s" "Can reach Ollama"
-if docker compose run --rm --no-TTY agent python3 -c "import requests; r=requests.get('http://host.docker.internal:11434', timeout=5); print(r.status_code)" 2>&1 | grep -q "200"; then
+if docker compose run --rm --no-TTY --entrypoint "" agent python3 -c "import requests; r=requests.get('http://host.docker.internal:11434', timeout=5); print(r.status_code)" 2>&1 | grep -q "200"; then
     echo "PASS"
     PASS=$((PASS + 1))
 else
