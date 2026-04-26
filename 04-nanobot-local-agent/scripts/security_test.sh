@@ -20,18 +20,18 @@ run_test() {
     if output=$(docker compose run --rm --no-TTY agent sh -c "$cmd" 2>&1); then
         if [ "$expect_fail" = "true" ]; then
             echo "FAIL (should have been denied)"
-            ((FAIL++))
+            FAIL=$((FAIL + 1))
         else
             echo "PASS"
-            ((PASS++))
+            PASS=$((PASS + 1))
         fi
     else
         if [ "$expect_fail" = "true" ]; then
             echo "PASS"
-            ((PASS++))
+            PASS=$((PASS + 1))
         else
             echo "FAIL (unexpected error)"
-            ((FAIL++))
+            FAIL=$((FAIL + 1))
         fi
     fi
 }
@@ -49,10 +49,10 @@ printf "%-50s" "Running as non-root"
 uid=$(docker compose run --rm --no-TTY agent id -u 2>&1)
 if [ "$uid" != "0" ]; then
     echo "PASS (uid=$uid)"
-    ((PASS++))
+    PASS=$((PASS + 1))
 else
     echo "FAIL (running as root!)"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
 fi
 
 # Network tests
@@ -61,10 +61,10 @@ run_test "No internet access" "python3 -c \"import urllib.request; urllib.reques
 printf "%-50s" "Can reach Ollama"
 if docker compose run --rm --no-TTY agent python3 -c "import requests; r=requests.get('http://ollama:11434', timeout=5); print(r.status_code)" 2>&1 | grep -q "200"; then
     echo "PASS"
-    ((PASS++))
+    PASS=$((PASS + 1))
 else
     echo "FAIL (cannot reach Ollama)"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
 fi
 
 echo ""
