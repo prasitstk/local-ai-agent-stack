@@ -129,6 +129,13 @@ agent:
   max_turns: 20
   max_tool_rounds: 3  # Max tool-call loops per user message
 
+  # Per-request HTTP timeout to Ollama (seconds). A tool-using turn
+  # makes two inference calls (request -> tool_call, then tool_result
+  # -> final answer). At ~6 tok/s on CPU-only hardware, plus possible
+  # cold-start `load_duration` (~35s), 300s gives comfortable headroom.
+  # Bump higher if your host is memory-pressured (paging to swap).
+  request_timeout: 300
+
   system_prompt: |
     You are a local AI assistant running on a private server.
     You have access to tools for DevOps tasks. Use them when relevant.
@@ -397,6 +404,7 @@ def run_agent(config: dict):
         turn_count += 1
 
         # --- Agent loop (with tool-call limit) ---
+        request_timeout = agent_cfg.get("request_timeout", 300)
         for round_num in range(agent_cfg["max_tool_rounds"]):
             try:
                 response = requests.post(
@@ -407,7 +415,7 @@ def run_agent(config: dict):
                         "tools": tools,
                         "stream": False,
                     },
-                    timeout=120,
+                    timeout=request_timeout,
                 )
                 result = response.json()
             except requests.exceptions.RequestException as e:

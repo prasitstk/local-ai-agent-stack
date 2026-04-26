@@ -218,6 +218,7 @@ def run_agent(config: dict):
         turn_count += 1
 
         # --- Agent loop (with tool-call limit) ---
+        request_timeout = agent_cfg.get("request_timeout", 300)
         for round_num in range(agent_cfg["max_tool_rounds"]):
             try:
                 response = requests.post(
@@ -228,7 +229,7 @@ def run_agent(config: dict):
                         "tools": tools,
                         "stream": False,
                     },
-                    timeout=120,
+                    timeout=request_timeout,
                 )
                 result = response.json()
             except requests.exceptions.RequestException as e:
