@@ -236,6 +236,15 @@ def run_agent(config: dict):
                 log(f"ERROR: Model request failed: {e}")
                 break
 
+            # Ollama returns {"error": "..."} on failure (model not loaded,
+            # OOM, unsupported feature, etc.) — surface it instead of
+            # KeyError'ing on result["message"].
+            if "message" not in result:
+                err = result.get("error", str(result))
+                print(f"\nAssistant: Ollama returned an error: {err}")
+                log(f"ERROR: Ollama API error (HTTP {response.status_code}): {err}")
+                break
+
             assistant_message = result["message"]
 
             if "tool_calls" not in assistant_message:
