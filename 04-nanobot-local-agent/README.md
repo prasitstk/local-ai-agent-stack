@@ -484,11 +484,16 @@ services:
     networks:
       - agent-net
     extra_hosts:
-      # host.docker.internal resolves to the host's bridge-gateway IP.
-      # The agent reaches the host's Ollama (Part 01) at this address.
-      # Works even on an `internal` network because the gateway IP is
-      # local to the bridge — no NAT egress required.
-      - "host.docker.internal:host-gateway"
+      # Pin host.docker.internal to the agent-net bridge gateway IP
+      # (172.30.0.1, configured via IPAM below). We can't use the
+      # `host-gateway` magic value here because on an `internal: true`
+      # bridge, host-gateway resolves to docker0's gateway (172.17.0.1)
+      # which the container can't route to without a default route.
+      # The bridge's own gateway IS reachable via the directly-
+      # connected route. Host Ollama listens on 0.0.0.0:11434 so it
+      # answers on this bridge IP. UFW rule `allow from 172.16.0.0/12`
+      # (added in Part 02) covers this subnet.
+      - "host.docker.internal:172.30.0.1"
     volumes:
       # Workspace is the ONLY writable mount
       - ./workspace:/workspace
@@ -513,9 +518,19 @@ networks:
   agent-net:
     driver: bridge
     internal: true  # No internet access for anything on this network
+    ipam:
+      # Pin the subnet/gateway so host.docker.internal can point at
+      # 172.30.0.1 above. Without this, Docker auto-picks a subnet
+      # that may shift across `compose down`/`up` cycles.
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
 ```
 
-> **Prerequisite for this to work:** Part 01's host Ollama must be running and bound to `0.0.0.0:11434` (the `OLLAMA_HOST` override from Step 6 of Part 01) so the agent container can reach it across the bridge gateway. If you firewalled port 11434 with UFW, make sure the rule `sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp` is in place — that's what we added back in Part 02 to let Compose project bridges reach the host's Ollama.
+> **Prerequisite for this to work:**
+>
+> - Part 01's host Ollama must be running and bound to `0.0.0.0:11434` (the `OLLAMA_HOST` override from Step 6 of Part 01) so the agent container can reach it across the pinned bridge gateway.
+> - The UFW rule `sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp` from Part 02 must be in place — that's what lets Compose project bridges (including this 172.30.0.0/24) reach the host's Ollama.
 
 ### Security layers explained
 
