@@ -688,7 +688,27 @@ services:
 The shipped `scripts/security_test.sh` runs a battery of checks against your built agent container — read-only root filesystem (`/etc`, `/app`, `/usr`), writable `/workspace` and `/tmp`, no-exec on `/tmp`, non-root user, no internet egress, and Ollama reachability — and reports pass/fail counts at the end. Build the agent first (Step 6), then from the project root:
 
 ```bash
-./scripts/security_test.sh
+sudo ./scripts/security_test.sh
+```
+
+> **Why `sudo`?** The script internally invokes `docker compose run` for each test, which needs Docker daemon access. If your shell user isn't in the `docker` group, you'll need `sudo` here — without it, every internal `docker compose run` call fails silently and the pass/fail tally becomes nonsense (Read-only tests look like they pass, Writable tests fail, and the script may hang on the first check that captures Docker's output into a variable). If you ran `sudo usermod -aG docker $USER` (Part 02 Step 1) **and** logged out/back in so the new group membership took effect, you can drop the `sudo`. Verify with `id -nG | grep docker`.
+
+A successful run looks like:
+
+```
+=== Agent Security Tests ===
+
+Read-only /etc                                    PASS
+Read-only /app                                    PASS
+Read-only /usr                                    PASS
+Writable /workspace                               PASS
+Writable /tmp                                     PASS
+No exec in /tmp                                   PASS
+Running as non-root                               PASS (uid=10001)
+No internet access                                PASS
+Can reach Ollama                                  PASS
+
+=== Results: 9 passed, 0 failed ===
 ```
 
 If you want to spot-check a single layer manually, here are quick equivalents:
