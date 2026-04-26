@@ -20,29 +20,32 @@ This guide applies the same defense-in-depth approach used in production systems
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    DigitalOcean Droplet                      │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │  Docker Network (agent-net) — internal only         │    │
-│  │                                                     │    │
-│  │  ┌─────────────┐    ┌────────────────────────────┐  │    │
-│  │  │   Ollama     │    │  Agent Container           │  │    │
-│  │  │  (LLM API)  │◄───│  ┌──────────────────────┐  │  │    │
-│  │  │             │    │  │  Nanobot Agent Engine │  │  │    │
-│  │  └─────────────┘    │  │  + Tool definitions  │  │  │    │
-│  │                     │  │  + Workspace (rw)    │  │  │    │
-│  │                     │  └──────────────────────┘  │  │    │
-│  │                     │  Read-only filesystem      │  │    │
-│  │                     │  Resource limits applied   │  │    │
-│  │                     │  Network egress controlled │  │    │
-│  │                     └────────────────────────────┘  │    │
-│  └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│  ┌──────────────┐                                           │
-│  │  Open WebUI   │ (from Part 02, optional)             │
-│  └──────────────┘                                           │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                     DigitalOcean Droplet                          │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────┐      │
+│  │  agent-net   (internal — no internet egress)            │      │
+│  │                                                        │      │
+│  │  ┌─────────────┐         ┌────────────────────────┐    │      │
+│  │  │   Ollama    │◄────────│  Agent Container        │    │      │
+│  │  │  (LLM API)  │         │  • Nanobot Agent Engine │    │      │
+│  │  │             │         │  • Tool defs + /workspace│   │      │
+│  │  │             │         │  • Read-only filesystem │    │      │
+│  │  │             │         │  • cap_drop ALL         │    │      │
+│  │  │             │         │  • Resource limits      │    │      │
+│  │  │             │         │  • No internet path     │    │      │
+│  │  └──────┬──────┘         └────────────────────────┘    │      │
+│  └─────────┼────────────────────────────────────────────────┘     │
+│            │ (Ollama is also on a second network)                 │
+│  ┌─────────┴──────────┐                                           │
+│  │   ollama-net       │ ──► registry.ollama.ai  (model pulls)     │
+│  │   (egress)         │                                           │
+│  └────────────────────┘                                           │
+│                                                                  │
+│  ┌──────────────┐                                                 │
+│  │  Open WebUI  │ (from Part 02, optional)                        │
+│  └──────────────┘                                                 │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## Step 1: Project Setup
@@ -450,7 +453,13 @@ services:
     volumes:
       - ollama-models:/root/.ollama
     networks:
+      # agent-net (internal) — how the agent reaches Ollama.
+      # ollama-net (egress)  — how Ollama reaches registry.ollama.ai
+      #                         to pull models. The agent is NOT on
+      #                         this network, so its no-internet
+      #                         guarantee is unchanged.
       - agent-net
+      - ollama-net
     # Resource limits for the LLM server
     deploy:
       resources:
@@ -489,7 +498,9 @@ services:
 networks:
   agent-net:
     driver: bridge
-    internal: true  # No internet access for agent containers
+    internal: true  # No internet access for anything on this network
+  ollama-net:
+    driver: bridge  # Default = has egress; only ollama is attached here
 
 volumes:
   ollama-models:
@@ -503,7 +514,7 @@ volumes:
 | `tmpfs: noexec` | Temp directory can't execute binaries | Downloaded malware execution |
 | `no-new-privileges` | Prevents privilege escalation inside the container | Container escape attempts |
 | `cap_drop: ALL` | Removes all Linux capabilities | Kernel-level exploits |
-| `internal: true` network | No internet access for the agent | Data exfiltration, callback shells |
+| `internal: true` on `agent-net` | Agent has no internet path. (`ollama` joins a second network, `ollama-net`, only so it can pull models from the registry — the agent isn't on that network.) | Data exfiltration, callback shells |
 | Resource limits | CPU and memory caps | Denial of service, runaway processes |
 | No Docker socket | Agent can't control Docker | Container escape via Docker API |
 | Non-root user | Agent runs as unprivileged user | Host filesystem access |

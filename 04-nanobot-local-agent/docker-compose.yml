@@ -6,7 +6,13 @@ services:
     volumes:
       - ollama-models:/root/.ollama
     networks:
+      # agent-net (internal) — how the agent reaches Ollama.
+      # ollama-net (egress)  — how Ollama reaches registry.ollama.ai
+      #                         to pull models. The agent is NOT on
+      #                         this network, so its no-internet
+      #                         guarantee is unchanged.
       - agent-net
+      - ollama-net
     # Resource limits for the LLM server
     deploy:
       resources:
@@ -45,7 +51,9 @@ services:
 networks:
   agent-net:
     driver: bridge
-    internal: true  # No internet access for agent containers
+    internal: true  # No internet access for anything on this network
+  ollama-net:
+    driver: bridge  # Default = has egress; only ollama is attached here
 
 volumes:
   ollama-models:
