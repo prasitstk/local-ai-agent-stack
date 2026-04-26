@@ -670,18 +670,29 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./workspace:/workspace
     entrypoint: /bin/sh
+    # The sed expression uses sed's `$!` (not last line), `$` (last line),
+    # and `$/` (end-of-line anchor) markers. To get a *literal* `$` to
+    # sed, each `$` must survive two layers of expansion:
+    #   1. Compose YAML — interpolates `$VAR`/`${VAR}`, and `$s` IS a
+    #      valid variable pattern (not just `$VAR` like `${HOSTNAME}`).
+    #      Escape with `$$` here, which Compose collapses to a single `$`.
+    #   2. /bin/sh inside double quotes — DOES expand `$!` (last bg PID,
+    #      empty) and `$s` (undefined). Escape with `\$` here, which the
+    #      shell collapses to a single `$` literal.
+    # Combined: write `\$$` in this YAML for every literal `$` we want
+    # sed to see. Compose: `$$` → `$`, leaving `\$`. Shell: `\$` → `$`.
     command: |
       -c 'while true; do
         docker stats --no-stream --format \
           "{\"name\":\"{{.Name}}\",\"cpu\":\"{{.CPUPerc}}\",\"mem\":\"{{.MemUsage}}\"}" \
-          | sed "1s/^/[/; $$!s/$$/,/; $$s/$$/]/" \
+          | sed "1s/^/[/; \$$!s/\$$/,/; \$$s/\$$/]/" \
           > /workspace/container_stats.json
         sleep 30
       done'
     networks: []  # No network access needed
 ```
 
-> **Note on `$$` escaping:** The `sed` command relies on `$!`, `$s`, and `$/` — sed's "not last line," "last line," and "end-of-line" markers. In a Compose YAML each literal `$` must be doubled (`$$`) so Compose's variable interpolation doesn't eat them. The shipped file already has the right doubling; if you adapt this elsewhere, keep the `$$`.
+> **Note on `\$$` (double-escaping `$`):** The `sed` command needs literal `$` characters for its line-address markers (`$!`, `$`) and end-of-line anchor (`$/`). Each `$` survives two layers of variable expansion before sed sees it: **Compose** (which interpolates `$VAR`/`$s` patterns and turns `$$` into a literal `$`), then **`/bin/sh` inside the double-quoted sed argument** (which interprets `\$` as a literal `$`). Writing `\$$` in YAML threads the needle: Compose collapses `$$` → `$`, leaving `\$`, then the shell collapses `\$` → `$`, and sed gets the literal `$` it expects. Plain `$$` alone is **not** enough — the shell still expands the result; that's the bug this section originally shipped with.
 
 ## Step 9: Testing Security
 

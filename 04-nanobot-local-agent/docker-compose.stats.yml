@@ -17,11 +17,22 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./workspace:/workspace
     entrypoint: /bin/sh
+    # The sed expression uses sed's `$!` (not last line), `$` (last line),
+    # and `$/` (end-of-line anchor) markers. To get a *literal* `$` to
+    # sed, each `$` must survive two layers of expansion:
+    #   1. Compose YAML — interpolates `$VAR`/`${VAR}`, and `$s` IS a
+    #      valid variable pattern (not just `$VAR` like `${HOSTNAME}`).
+    #      Escape with `$$` here, which Compose collapses to a single `$`.
+    #   2. /bin/sh inside double quotes — DOES expand `$!` (last bg PID,
+    #      empty) and `$s` (undefined). Escape with `\$` here, which the
+    #      shell collapses to a single `$` literal.
+    # Combined: write `\$$` in this YAML for every literal `$` we want
+    # sed to see. Compose: `$$` → `$`, leaving `\$`. Shell: `\$` → `$`.
     command: |
       -c 'while true; do
         docker stats --no-stream --format \
           "{\"name\":\"{{.Name}}\",\"cpu\":\"{{.CPUPerc}}\",\"mem\":\"{{.MemUsage}}\"}" \
-          | sed "1s/^/[/; $$!s/$$/,/; $$s/$$/]/" \
+          | sed "1s/^/[/; \$$!s/\$$/,/; \$$s/\$$/]/" \
           > /workspace/container_stats.json
         sleep 30
       done'
