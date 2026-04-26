@@ -1,0 +1,28 @@
+# Optional: container-stats sidecar for the `container_list` agent tool.
+#
+# Layer this on top of the base compose:
+#   docker compose -f docker-compose.yml -f docker-compose.stats.yml up -d
+#
+# The sidecar mounts the host Docker socket read-only and writes a
+# JSON snapshot of `docker stats` to the shared workspace every 30s.
+# The agent reads that file via the container_list tool — it never
+# touches the Docker socket directly.
+
+services:
+  stats-collector:
+    image: docker:cli
+    container_name: stats-collector
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./workspace:/workspace
+    entrypoint: /bin/sh
+    command: |
+      -c 'while true; do
+        docker stats --no-stream --format \
+          "{\"name\":\"{{.Name}}\",\"cpu\":\"{{.CPUPerc}}\",\"mem\":\"{{.MemUsage}}\"}" \
+          | sed "1s/^/[/; $$!s/$$/,/; $$s/$$/]/" \
+          > /workspace/container_stats.json
+        sleep 30
+      done'
+    networks: []  # No network access needed
