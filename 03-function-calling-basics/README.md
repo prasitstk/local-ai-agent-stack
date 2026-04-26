@@ -195,25 +195,27 @@ You should see the model requesting a tool call for the time question, your code
 
 ## Step 3: Multiple Tools
 
-Now let's give the model several tools to choose from. On disk this step is split into **two** files so Step 4 can reuse the tool definitions without copy-paste:
+Now let's give the model several tools to choose from. This step is split across two files so Step 4 can reuse the same tool definitions without copy-paste:
 
-- `multi_tools_lib.py` — tool implementations + `TOOLS` schema + `AVAILABLE_FUNCTIONS` map
-- `02_multi_tools.py` — the driver script that imports from the lib and runs the four test queries
+- `multi_tools_lib.py` — tool implementations + `TOOLS` schema + `AVAILABLE_FUNCTIONS` map (no driver code, no `__main__`)
+- `02_multi_tools.py` — the driver that imports from the lib and runs four test queries
 
-The code below is shown as one self-contained block for pedagogy — when you read the actual files, the tool defs live in the lib and the driver is a thin import.
+First, the shared library — `multi_tools_lib.py`:
 
 ```python
 """
-02_multi_tools.py — Multiple tools the model can choose between.
+multi_tools_lib.py — Shared tool definitions for 02_multi_tools.py and 03_agent_loop.py.
 
-The model decides which tool to use (or none) based on the question.
+Three demo tools the model can choose between:
+  - convert_currency: USD/THB/EUR/JPY conversion with hardcoded rates
+  - calculate_ema:    Exponential Moving Average for a price series
+  - system_health:    Simulated service status lookup
+
+Each tool returns a JSON string. The TOOLS list below is the OpenAI-shaped
+Chat Completions schema; AVAILABLE_FUNCTIONS maps tool names back to callables.
 """
 
 import json
-import requests
-
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "gemma4:e2b"
 
 
 # --- Tool implementations ---
@@ -338,6 +340,26 @@ AVAILABLE_FUNCTIONS = {
     "calculate_ema": calculate_ema,
     "system_health": system_health,
 }
+```
+
+Then the driver — `02_multi_tools.py`:
+
+```python
+"""
+02_multi_tools.py — Multiple tools the model can choose between.
+
+The model decides which tool to use (or none) based on the question.
+Tool definitions live in multi_tools_lib.py so 03_agent_loop.py can
+reuse them without copy-paste.
+"""
+
+import json
+import requests
+
+from multi_tools_lib import TOOLS, AVAILABLE_FUNCTIONS
+
+OLLAMA_URL = "http://localhost:11434/api/chat"
+MODEL = "gemma4:e2b"
 
 
 def chat_with_tools(user_message: str) -> str:
@@ -440,11 +462,10 @@ import json
 import readline  # Enables arrow keys and history in the terminal
 import requests
 
+from multi_tools_lib import TOOLS, AVAILABLE_FUNCTIONS
+
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "gemma4:e2b"
-
-# Reuse tools from 02_multi_tools.py
-from multi_tools_lib import TOOLS, AVAILABLE_FUNCTIONS
 
 
 def process_tool_calls(messages: list, assistant_message: dict) -> str:
